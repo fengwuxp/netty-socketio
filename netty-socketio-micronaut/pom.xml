@@ -6,11 +6,10 @@
   <parent>
     <groupId>com.socketio4j</groupId>
     <artifactId>netty-socketio-parent</artifactId>
-    <version>3.0.2-SNAPSHOT</version>
+    <version>${revision}</version>
   </parent>
 
   <artifactId>netty-socketio-micronaut</artifactId>
-  <packaging>bundle</packaging>
   <name>NettySocketIO Micronaut</name>
   <description>Socket.IO server Micronaut integration</description>
 
@@ -34,7 +33,6 @@
     <dependency>
       <groupId>com.socketio4j</groupId>
       <artifactId>netty-socketio-core</artifactId>
-      <version>3.0.2-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>io.micronaut</groupId>

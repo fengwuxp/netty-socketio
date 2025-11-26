@@ -6,7 +6,7 @@
   <parent>
     <groupId>com.socketio4j</groupId>
     <artifactId>netty-socketio-quarkus</artifactId>
-    <version>3.0.2-SNAPSHOT</version>
+    <version>${revision}</version>
   </parent>
 
   <artifactId>netty-socketio-quarkus-runtime</artifactId>
@@ -16,15 +16,11 @@
     <dependency>
       <groupId>com.socketio4j</groupId>
       <artifactId>netty-socketio-core</artifactId>
-      <version>3.0.2-SNAPSHOT</version>
+      <version>${revision}</version>
     </dependency>
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-arc</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-api</artifactId>
     </dependency>
   </dependencies>
 

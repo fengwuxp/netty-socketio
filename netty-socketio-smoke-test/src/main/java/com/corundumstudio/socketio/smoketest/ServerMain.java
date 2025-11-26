@@ -21,7 +21,7 @@ import org.slf4j.LoggerFactory;
 import com.corundumstudio.socketio.Configuration;
 import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.listener.DataListener;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * SocketIO Server for smoke testing.
@@ -30,7 +30,7 @@ public class ServerMain {
     public static final int DEFAULT_PORT = 8899;
 
     private static final Logger log = LoggerFactory.getLogger(ServerMain.class);
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final JsonMapper mapper = new JsonMapper();
 
     private SocketIOServer server;
     private final SystemInfo systemInfo = new SystemInfo();

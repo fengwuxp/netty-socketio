@@ -22,14 +22,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+
 import com.github.javafaker.Faker;
 
 import io.socket.client.IO;
 import io.socket.client.Socket;
+import tools.jackson.databind.json.JsonMapper;
 
 import static org.awaitility.Awaitility.await;
 
@@ -40,7 +42,7 @@ import static org.awaitility.Awaitility.await;
 public class ClientMain {
     
     private static final Logger log = LoggerFactory.getLogger(ClientMain.class);
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final JsonMapper JSON_MAPPER = new JsonMapper();
     private static final Faker faker = new Faker();
     
     private final List<Socket> clients = new ArrayList<>();

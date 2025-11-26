@@ -1,12 +1,12 @@
 /**
  * Copyright (c) 2012-2025 Nikita Koksharov
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,10 +15,31 @@
  */
 package com.corundumstudio.socketio.protocol;
 
-import java.io.IOException;
+import com.corundumstudio.socketio.AckCallback;
+import com.corundumstudio.socketio.MultiTypeAckCallback;
+import com.corundumstudio.socketio.namespace.Namespace;
+import io.netty.buffer.ByteBufInputStream;
+import io.netty.buffer.ByteBufOutputStream;
+import org.jspecify.annotations.NonNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.core.JsonParser;
+import tools.jackson.core.JsonToken;
+import tools.jackson.core.ObjectReadContext;
+import tools.jackson.databind.DeserializationContext;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JacksonModule;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.deser.std.StdDeserializer;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.module.SimpleModule;
+import tools.jackson.databind.ser.std.StdSerializer;
+
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -26,307 +47,59 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.corundumstudio.socketio.AckCallback;
-import com.corundumstudio.socketio.MultiTypeAckCallback;
-import com.corundumstudio.socketio.namespace.Namespace;
-import com.fasterxml.jackson.annotation.JsonInclude.Include;
-import com.fasterxml.jackson.core.JsonGenerationException;
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.BeanDescription;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JavaType;
-import com.fasterxml.jackson.databind.JsonMappingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.Module;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationConfig;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.SerializerProvider;
-import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
-import com.fasterxml.jackson.databind.jsonFormatVisitors.JsonArrayFormatVisitor;
-import com.fasterxml.jackson.databind.jsonFormatVisitors.JsonFormatTypes;
-import com.fasterxml.jackson.databind.jsonFormatVisitors.JsonFormatVisitorWrapper;
-import com.fasterxml.jackson.databind.jsontype.TypeSerializer;
-import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.fasterxml.jackson.databind.ser.BeanSerializerModifier;
-import com.fasterxml.jackson.databind.ser.std.StdSerializer;
-import com.fasterxml.jackson.databind.type.ArrayType;
-
-import io.netty.buffer.ByteBufInputStream;
-import io.netty.buffer.ByteBufOutputStream;
-import io.netty.util.internal.PlatformDependent;
+import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL;
 
 public class JacksonJsonSupport implements JsonSupport {
 
-    protected class AckArgsDeserializer extends StdDeserializer<AckArgs> {
+    private final ThreadLocal<String> namespaceClass = new ThreadLocal<>();
 
-        private static final long serialVersionUID = 7810461017389946707L;
+    private final ThreadLocal<AckCallback<?>> currentAckClass = new ThreadLocal<>();
 
-        protected AckArgsDeserializer() {
-            super(AckArgs.class);
-        }
+    /**
+     * 用于跟踪字节数组的线程局部变量
+     */
+    private final ThreadLocal<List<byte[]>> binaryArrays = ThreadLocal.withInitial(ArrayList::new);
 
-        @Override
-        public AckArgs deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException,
-                JsonProcessingException {
-            List<Object> args = new ArrayList<Object>();
-            AckArgs result = new AckArgs(args);
+    private final JsonMapper jsonMapper;
 
-            ObjectMapper mapper = (ObjectMapper) jp.getCodec();
-            JsonNode root = mapper.readTree(jp);
-            AckCallback<?> callback = currentAckClass.get();
-            Iterator<JsonNode> iter = root.iterator();
-            int i = 0;
-            while (iter.hasNext()) {
-                Object val;
+    private final EventDeserializer eventDeserializer;
 
-                Class<?> clazz = callback.getResultClass();
-                if (callback instanceof MultiTypeAckCallback) {
-                    MultiTypeAckCallback multiTypeAckCallback = (MultiTypeAckCallback) callback;
-                    clazz = multiTypeAckCallback.getResultClasses()[i];
-                }
-
-                JsonNode arg = iter.next();
-                if (arg.isTextual() || arg.isBoolean()) {
-                    clazz = Object.class;
-                }
-
-                val = mapper.treeToValue(arg, clazz);
-                args.add(val);
-                i++;
-            }
-            return result;
-        }
-
-    }
-
-    public static class EventKey {
-
-        private String namespaceName;
-        private String eventName;
-
-        public EventKey(String namespaceName, String eventName) {
-            super();
-            this.namespaceName = namespaceName;
-            this.eventName = eventName;
-        }
-
-        @Override
-        public int hashCode() {
-            final int prime = 31;
-            int result = 1;
-            if (eventName == null) {
-                result = prime * result + 0;
-            } else {
-                result = prime * result + eventName.hashCode();
-            }
-            if (namespaceName == null) {
-                result = prime * result + 0;
-            } else {
-                result = prime * result + namespaceName.hashCode();
-            }
-            return result;
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj)
-                return true;
-            if (obj == null)
-                return false;
-            if (getClass() != obj.getClass())
-                return false;
-            EventKey other = (EventKey) obj;
-            if (eventName == null) {
-                if (other.eventName != null)
-                    return false;
-            } else if (!eventName.equals(other.eventName))
-                return false;
-            if (namespaceName == null) {
-                if (other.namespaceName != null)
-                    return false;
-            } else if (!namespaceName.equals(other.namespaceName))
-                return false;
-            return true;
-        }
-
-    }
-
-    protected class EventDeserializer extends StdDeserializer<Event> {
-
-        private static final long serialVersionUID = 8178797221017768689L;
-
-        final Map<EventKey, List<Class<?>>> eventMapping = PlatformDependent.newConcurrentHashMap();
-
-
-        protected EventDeserializer() {
-            super(Event.class);
-        }
-
-        @Override
-        public Event deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException,
-                JsonProcessingException {
-            ObjectMapper mapper = (ObjectMapper) jp.getCodec();
-            String eventName = jp.nextTextValue();
-
-            EventKey ek = new EventKey(namespaceClass.get(), eventName);
-            if (!eventMapping.containsKey(ek)) {
-                ek = new EventKey(Namespace.DEFAULT_NAME, eventName);
-                if (!eventMapping.containsKey(ek)) {
-                    return new Event(eventName, Collections.emptyList());
-                }
-            }
-
-            List<Object> eventArgs = new ArrayList<Object>();
-            Event event = new Event(eventName, eventArgs);
-            List<Class<?>> eventClasses = eventMapping.get(ek);
-            int i = 0;
-            while (true) {
-                JsonToken token = jp.nextToken();
-                if (token == JsonToken.END_ARRAY) {
-                    break;
-                }
-                if (i > eventClasses.size() - 1) {
-                    log.debug("Event {} has more args than declared in handler: {}", eventName, null);
-                    break;
-                }
-                Class<?> eventClass = eventClasses.get(i);
-                Object arg = mapper.readValue(jp, eventClass);
-                eventArgs.add(arg);
-                i++;
-            }
-            return event;
-        }
-
-    }
-
-    public static class ByteArraySerializer extends StdSerializer<byte[]> {
-
-        private static final long serialVersionUID = 3420082888596468148L;
-
-        private final ThreadLocal<List<byte[]>> arrays = new ThreadLocal<List<byte[]>>() {
-            @Override
-            protected List<byte[]> initialValue() {
-                return new ArrayList<byte[]>();
-            };
-        };
-
-        public ByteArraySerializer() {
-            super(byte[].class);
-        }
-
-        @Override
-        public boolean isEmpty(byte[] value) {
-            return value == null || value.length == 0;
-        }
-
-        @Override
-        public void serialize(byte[] value, JsonGenerator jgen, SerializerProvider provider)
-            throws IOException, JsonGenerationException {
-            Map<String, Object> map = new HashMap<String, Object>();
-            map.put("num", arrays.get().size());
-            map.put("_placeholder", true);
-            jgen.writeObject(map);
-            arrays.get().add(value);
-        }
-
-        @Override
-        public void serializeWithType(byte[] value, JsonGenerator jgen, SerializerProvider provider,
-                TypeSerializer typeSer)
-            throws IOException, JsonGenerationException {
-            serialize(value, jgen, provider);
-        }
-
-        @Override
-        public JsonNode getSchema(SerializerProvider provider, Type typeHint) {
-            ObjectNode o = createSchemaNode("array", true);
-            ObjectNode itemSchema = createSchemaNode("string"); //binary values written as strings?
-            return o.set("items", itemSchema);
-        }
-
-        @Override
-        public void acceptJsonFormatVisitor(JsonFormatVisitorWrapper visitor, JavaType typeHint)
-                throws JsonMappingException {
-            if (visitor != null) {
-                JsonArrayFormatVisitor v2 = visitor.expectArrayFormat(typeHint);
-                if (v2 != null) {
-                    v2.itemsFormat(JsonFormatTypes.STRING);
-                }
-            }
-        }
-
-        public List<byte[]> getArrays() {
-            return arrays.get();
-        }
-
-        public void clear() {
-            arrays.set(new ArrayList<byte[]>());
-        }
-
-    }
-
-
-    protected static class ExBeanSerializerModifier extends BeanSerializerModifier {
-
-        private final ByteArraySerializer serializer = new ByteArraySerializer();
-
-        @Override
-        public JsonSerializer<?> modifyArraySerializer(SerializationConfig config, ArrayType valueType,
-                BeanDescription beanDesc, JsonSerializer<?> serializer) {
-            if (valueType.getRawClass().equals(byte[].class)) {
-                return this.serializer;
-            }
-
-            return super.modifyArraySerializer(config, valueType, beanDesc, serializer);
-        }
-
-        public ByteArraySerializer getSerializer() {
-            return serializer;
-        }
-
-    }
-
-    protected final ExBeanSerializerModifier modifier = new ExBeanSerializerModifier();
-    protected final ThreadLocal<String> namespaceClass = new ThreadLocal<String>();
-    protected final ThreadLocal<AckCallback<?>> currentAckClass = new ThreadLocal<AckCallback<?>>();
-    protected final ObjectMapper objectMapper = new ObjectMapper();
-    protected final EventDeserializer eventDeserializer = new EventDeserializer();
-    protected final AckArgsDeserializer ackArgsDeserializer = new AckArgsDeserializer();
+    private final AckArgsDeserializer ackArgsDeserializer;
 
     protected static final Logger log = LoggerFactory.getLogger(JacksonJsonSupport.class);
 
     public JacksonJsonSupport() {
-        this(new Module[] {});
+        this(List.of());
     }
 
-    public JacksonJsonSupport(Module... modules) {
-        if (modules != null && modules.length > 0) {
-            objectMapper.registerModules(modules);
-        }
-        init(objectMapper);
-    }
+    public JacksonJsonSupport(@NonNull List<JacksonModule> modules) {
+        // Jackson 3.x 使用 JsonMapper.builder() 创建 ObjectMapper
+        JsonMapper.Builder builder = JsonMapper.builder();
 
-    protected void init(ObjectMapper objectMapper) {
-        SimpleModule module = new SimpleModule();
-        module.setSerializerModifier(modifier);
-        module.addDeserializer(Event.class, eventDeserializer);
-        module.addDeserializer(AckArgs.class, ackArgsDeserializer);
-        objectMapper.registerModule(module);
-
-        objectMapper.setSerializationInclusion(Include.NON_NULL);
-        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        objectMapper.configure(SerializationFeature.WRITE_BIGDECIMAL_AS_PLAIN, true);
-        objectMapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
+        // 配置序列化/反序列化设置 - 使用 Jackson 3.x 的 API
+        builder.changeDefaultPropertyInclusion(incl -> incl.withValueInclusion(NON_NULL));
+        // 配置序列化/反序列化设置
+        builder.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        builder.configure(tools.jackson.databind.SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
+        // 关键：禁用尾随令牌检查
+        builder.configure(DeserializationFeature.FAIL_ON_TRAILING_TOKENS, false);
+        // 创建自定义模块
+        SimpleModule serializeModule = new SimpleModule();
+        // 注册字节数组序列化器
+        serializeModule.addSerializer(byte[].class, new ByteArraySerializer(binaryArrays::get));
+        this.eventDeserializer = new EventDeserializer();
+        this.ackArgsDeserializer = new AckArgsDeserializer();
+        SimpleModule deserializerModule = new SimpleModule();
+        deserializerModule.addDeserializer(Event.class, eventDeserializer);
+        deserializerModule.addDeserializer(AckArgs.class, ackArgsDeserializer);
+        // 注册内部模块
+        List.of(serializeModule, deserializerModule).forEach(builder::addModule);
+        // 注册外部模块
+        modules.forEach(builder::addModule);
+        this.jsonMapper = builder.build();
     }
 
     @Override
@@ -340,26 +113,154 @@ public class JacksonJsonSupport implements JsonSupport {
     }
 
     @Override
-    public <T> T readValue(String namespaceName, ByteBufInputStream src, Class<T> valueType) throws IOException {
+    public <T> T readValue(String namespaceName, ByteBufInputStream src, Class<T> valueType) {
         namespaceClass.set(namespaceName);
-        return objectMapper.readValue((InputStream) src, valueType);
+        try {
+            return jsonMapper.readValue((InputStream) src, valueType);
+        } finally {
+            namespaceClass.remove();
+        }
     }
 
     @Override
-    public AckArgs readAckArgs(ByteBufInputStream src, AckCallback<?> callback) throws IOException {
+    public AckArgs readAckArgs(ByteBufInputStream src, AckCallback<?> callback) {
         currentAckClass.set(callback);
-        return objectMapper.readValue((InputStream) src, AckArgs.class);
+        try {
+            return jsonMapper.readValue((InputStream) src, AckArgs.class);
+        } finally {
+            currentAckClass.remove();
+        }
     }
 
     @Override
-    public void writeValue(ByteBufOutputStream out, Object value) throws IOException {
-        modifier.getSerializer().clear();
-        objectMapper.writeValue((OutputStream) out, value);
+    public void writeValue(ByteBufOutputStream out, Object value) {
+        // 清空线程局部的字节数组列表
+        binaryArrays.remove();
+        jsonMapper.writeValue((OutputStream) out, value);
     }
 
     @Override
     public List<byte[]> getArrays() {
-        return modifier.getSerializer().getArrays();
+        return binaryArrays.get();
     }
 
+    public String getNamespaceClass() {
+        return namespaceClass.get();
+    }
+
+    public AckCallback<?> getCurrentAckClass() {
+        return currentAckClass.get();
+    }
+
+
+    public JsonMapper getJsonMapper() {
+        return jsonMapper;
+    }
+
+    public EventDeserializer getEventDeserializer() {
+        return eventDeserializer;
+    }
+
+    public AckArgsDeserializer getAckArgsDeserializer() {
+        return ackArgsDeserializer;
+    }
+
+    private class AckArgsDeserializer extends StdDeserializer<AckArgs> {
+
+        protected AckArgsDeserializer() {
+            super(AckArgs.class);
+        }
+
+        @Override
+        public AckArgs deserialize(JsonParser jp, DeserializationContext ctxt) throws JacksonException {
+            List<Object> args = new ArrayList<>();
+            AckArgs result = new AckArgs(args);
+            ObjectReadContext objectReadContext = jp.objectReadContext();
+            JsonNode root = objectReadContext.readTree(jp);
+            AckCallback<?> callback = currentAckClass.get();
+            Iterator<JsonNode> iter = root.iterator();
+            int i = 0;
+            while (iter.hasNext()) {
+                Object val;
+                Class<?> clazz = callback.getResultClass();
+                if (callback instanceof MultiTypeAckCallback ackCallback) {
+                    clazz = ackCallback.getResultClasses()[i];
+                }
+
+                JsonNode arg = iter.next();
+                if (arg.isString() || arg.isBoolean()) {
+                    clazz = Object.class;
+                }
+                val = objectReadContext.readValue(objectReadContext.treeAsTokens(arg), clazz);
+                args.add(val);
+                i++;
+            }
+            return result;
+        }
+    }
+
+    public record EventKey(String namespaceName, String eventName) {
+
+    }
+
+    private class EventDeserializer extends StdDeserializer<Event> {
+
+        private final Map<EventKey, List<Class<?>>> eventMapping = new ConcurrentHashMap<>();
+
+        protected EventDeserializer() {
+            super(Event.class);
+        }
+
+        @Override
+        public Event deserialize(JsonParser jp, DeserializationContext ctxt) throws JacksonException {
+            String eventName = jp.nextStringValue();
+            EventKey ek = new EventKey(namespaceClass.get(), eventName);
+            if (!eventMapping.containsKey(ek)) {
+                ek = new EventKey(Namespace.DEFAULT_NAME, eventName);
+                if (!eventMapping.containsKey(ek)) {
+                    return new Event(eventName, Collections.emptyList());
+                }
+            }
+
+            List<Object> eventArgs = new ArrayList<>();
+            Event event = new Event(eventName, eventArgs);
+            List<Class<?>> eventClasses = eventMapping.get(ek);
+            int i = 0;
+            while (true) {
+                JsonToken token = jp.nextToken();
+                if (token == JsonToken.END_ARRAY) {
+                    break;
+                }
+                if (i > eventClasses.size() - 1) {
+                    log.debug("Event {} has more args than declared in handler: {}", eventName, null);
+                    break;
+                }
+                Class<?> eventClass = eventClasses.get(i);
+                Object arg = jp.objectReadContext().readValue(jp, eventClass);
+                eventArgs.add(arg);
+                i++;
+            }
+            return event;
+        }
+    }
+
+    // 简化的字节数组序列化器
+    private static class ByteArraySerializer extends StdSerializer<byte[]> {
+
+        private final Supplier<List<byte[]>> arrays;
+
+        public ByteArraySerializer(Supplier<List<byte[]>> arrays) {
+            super(byte[].class);
+            this.arrays = arrays;
+        }
+
+        @Override
+        public void serialize(byte[] value, JsonGenerator gen, SerializationContext provider) throws JacksonException {
+            Map<String, Object> map = HashMap.newHashMap(4);
+            map.put("num", arrays.get().size());
+            map.put("_placeholder", true);
+            gen.writePOJO(map);
+            arrays.get().add(value);
+        }
+    }
 }

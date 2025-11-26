@@ -1,12 +1,12 @@
 /**
  * Copyright (c) 2012-2025 Nikita Koksharov
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,26 +14,6 @@
  * limitations under the License.
  */
 package com.corundumstudio.socketio;
-
-import java.net.InetSocketAddress;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
-
-import io.netty.channel.*;
-import io.netty.channel.epoll.Epoll;
-import io.netty.channel.epoll.EpollIoHandler;
-import io.netty.channel.kqueue.KQueue;
-import io.netty.channel.kqueue.KQueueIoHandler;
-import io.netty.channel.kqueue.KQueueServerSocketChannel;
-import io.netty.channel.nio.NioIoHandler;
-import io.netty.channel.uring.IoUring;
-import io.netty.channel.uring.IoUringIoHandler;
-import io.netty.channel.uring.IoUringServerSocketChannel;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.corundumstudio.socketio.listener.ClientListeners;
 import com.corundumstudio.socketio.listener.ConnectListener;
@@ -45,13 +25,38 @@ import com.corundumstudio.socketio.listener.PingListener;
 import com.corundumstudio.socketio.listener.PongListener;
 import com.corundumstudio.socketio.namespace.Namespace;
 import com.corundumstudio.socketio.namespace.NamespacesHub;
-
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.DefaultEventLoop;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.FixedRecvByteBufAllocator;
+import io.netty.channel.IoHandlerFactory;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
+import io.netty.channel.ServerChannel;
+import io.netty.channel.WriteBufferWaterMark;
+import io.netty.channel.epoll.Epoll;
+import io.netty.channel.epoll.EpollIoHandler;
 import io.netty.channel.epoll.EpollServerSocketChannel;
+import io.netty.channel.kqueue.KQueue;
+import io.netty.channel.kqueue.KQueueIoHandler;
+import io.netty.channel.kqueue.KQueueServerSocketChannel;
+import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.channel.uring.IoUring;
+import io.netty.channel.uring.IoUringIoHandler;
+import io.netty.channel.uring.IoUringServerSocketChannel;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.FutureListener;
 import io.netty.util.concurrent.SucceededFuture;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Fully thread-safe.
@@ -262,7 +267,7 @@ public class SocketIOServer implements ClientListeners {
             ioHandler = KQueueIoHandler.newFactory();
         }
 
-        bossGroup   = new MultiThreadIoEventLoopGroup(configCopy.getBossThreads(), ioHandler);
+        bossGroup = new MultiThreadIoEventLoopGroup(configCopy.getBossThreads(), ioHandler);
         workerGroup = new MultiThreadIoEventLoopGroup(configCopy.getWorkerThreads(), ioHandler);
 
     }
