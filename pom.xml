@@ -5,7 +5,7 @@
     <parent>
         <groupId>com.wind.middleware</groupId>
         <artifactId>wind-middleware</artifactId>
-        <version>1.1.0-jdk21-SNAPSHOT</version>
+        <version>1.10.0-jdk21-SNAPSHOT</version>
     </parent>
 
     <groupId>com.socketio4j</groupId>
@@ -62,7 +62,7 @@
 
 
     <properties>
-        <revision>1.0.0-jdk21-SNAPSHOT</revision>
+        <revision>1.10.0-jdk21-SNAPSHOT</revision>
         <java.version>21</java.version>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
@@ -322,7 +322,6 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <level>public</level>
                     <doclint>none</doclint>
                     <quiet>true</quiet>
                 </configuration>
