@@ -7,4 +7,5 @@
 **/gnupg
 **/.idea
 **/*.iml
+*.flattened-pom.xml
 dependency-reduced-pom.xml
