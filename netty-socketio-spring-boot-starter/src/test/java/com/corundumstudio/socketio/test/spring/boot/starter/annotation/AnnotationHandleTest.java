@@ -40,12 +40,12 @@ import com.corundumstudio.socketio.annotation.OnConnect;
 import com.corundumstudio.socketio.annotation.OnDisconnect;
 import com.corundumstudio.socketio.annotation.OnEvent;
 import com.corundumstudio.socketio.test.spring.boot.starter.BaseSpringApplicationTest;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+
 
 import io.socket.client.Ack;
 import io.socket.client.IO;
 import io.socket.client.Socket;
+import tools.jackson.databind.json.JsonMapper;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -264,7 +264,7 @@ public class AnnotationHandleTest extends BaseSpringApplicationTest {
     @Autowired
     private TestOnEventController testOnEventController;
 
-    private ObjectMapper objectMapper = new ObjectMapper();
+    private JsonMapper objectMapper = new JsonMapper();
 
     @Test
     public void testOnConnect() throws Exception {
@@ -275,7 +275,7 @@ public class AnnotationHandleTest extends BaseSpringApplicationTest {
                 "onConnect methods should be called");
         assertEquals(1, testConnectController.params.size(),
                 "onConnect method should have SocketIOClient parameter");
-        assertTrue(SocketIOClient.class.isAssignableFrom(testConnectController.params.get(0).getClass()),
+        assertTrue(SocketIOClient.class.isAssignableFrom(testConnectController.params.getFirst().getClass()),
                 "Parameter should be of type SocketIOClient");
     }
 
@@ -313,12 +313,7 @@ public class AnnotationHandleTest extends BaseSpringApplicationTest {
         socket.emit(TestOnEventController.EVENT_NAME_2, null, new Ack() {
             @Override
             public void call(Object... objects) {
-                TestData testData = null;
-                try {
-                    testData = objectMapper.readValue(objects[0].toString(), TestData.class);
-                } catch (JsonProcessingException e) {
-                    throw new RuntimeException(e);
-                }
+                TestData testData = objectMapper.readValue(objects[0].toString(), TestData.class);
                 ackDataRef.set(testData);
             }
         });
@@ -339,12 +334,7 @@ public class AnnotationHandleTest extends BaseSpringApplicationTest {
         socket.emit(TestOnEventController.EVENT_NAME_3, null, new Ack() {
             @Override
             public void call(Object... objects) {
-                TestData testData = null;
-                try {
-                    testData = objectMapper.readValue(objects[0].toString(), TestData.class);
-                } catch (JsonProcessingException e) {
-                    throw new RuntimeException(e);
-                }
+                TestData testData = objectMapper.readValue(objects[0].toString(), TestData.class);
                 ackDataRef.set(testData);
             }
         });
@@ -368,17 +358,9 @@ public class AnnotationHandleTest extends BaseSpringApplicationTest {
         AtomicReference<TestData> ackDataRef = new AtomicReference<>();
         socket.emit(TestOnEventController.EVENT_NAME_4,
                 objectMapper.writeValueAsString(TestData.TEST_REQ_DATA),
-                new Ack() {
-                    @Override
-                    public void call(Object... objects) {
-                        TestData testData = null;
-                        try {
-                            testData = objectMapper.readValue(objects[0].toString(), TestData.class);
-                        } catch (JsonProcessingException e) {
-                            throw new RuntimeException(e);
-                        }
-                        ackDataRef.set(testData);
-                    }
+                (Ack) objects -> {
+                    TestData testData = objectMapper.readValue(objects[0].toString(), TestData.class);
+                    ackDataRef.set(testData);
                 });
         await().atMost(10, TimeUnit.SECONDS)
                 .until(() -> testOnEventController.counter.get() == 1
